@@ -1,0 +1,145 @@
+#!/usr/bin/env ruby
+
+sim_path = "~/Library/Application Support/iPhone Simulator/User/Applications"
+sim_path = File.expand_path sim_path
+
+help_text = <<END_HELP
+NAME
+  iphone_sim_app_find -- find apps in the iPhone Simulator
+
+SYNOPSIS
+  iphone_sim_app_find [-g] app_name [link_path]
+  iphone_sim_app_find [-h | --help]
+
+OVERVIEW
+  Where an app lives in the iPhone simulator directory structure
+  changes with each new build/deploy cycle. This script helps track
+  it.  
+
+DESCRIPTION
+  When invoked with no options, this utility will search for app_name
+  in the iPhone Simulator's directory structure, i.e.
+
+  #{sim_path}
+
+  If it finds a single immediate subdirectory containing the app file
+  [app_name].app, then it will output the full path to that directory
+  to stdio. If the -g option is specified, then only the name of this
+  directory -- the GUID -- is output. Anything other than a single
+  directory found is an error condition.
+
+  If a link_path is specified, this utility will *instead* attempt
+  to create a symbolic link to the found app directory at link_path.
+  If link_path does not exist, or it exists and is a symbolic link,
+  then the script will create a new symbolic link pointing to the
+  specified app directory. If something else exists at link_path, it
+  causes an error. For the link_path option, stdio receives the
+  status of this process.
+
+  Options:
+
+  -g            Returns only the GUID value of the app directory,
+                rather than the entire path. Ignored when link_path is 
+                present.
+
+  -h | --help   Displays this text
+HISTORY
+  Jul 2009: Written by Clay Bridges, claybridges@gmail.com
+ 
+END_HELP
+
+usage_text = <<END_USAGE
+Usage:
+  iphone_sim_app_find [-g] app_name [link_path]
+  iphone_sim_app_find [-h | --help]
+END_USAGE
+
+# NOTES:
+# All iPhone apps installed on your simulator can be found at 
+# ~/Library/Application Support/iPhone Simulator/User/Applications
+#
+# Underneath this directory you'll find zero or more directories based on
+# GUIDs, e.g. 
+#
+# $ pwd
+# /Users/clay/Library/Application Support/iPhone Simulator/User/Applications
+# $ ls -d E4*9
+# E4C1C9CF-946B-467E-861F-FC0273D5BAF9
+# $ ls E4*9
+# Documents	app_name.app	Library		tmp
+#
+# Every time you reinstall your app its GUID changes, along with the
+# location of your app. This can be frustrating. 
+# 
+# Yes, I know that one or more of you can do this way better and more
+# easily on the command line with find and pipes and stuff, and in
+# 37 lightly-pressed keystrokes. You have my respect.
+require 'fileutils'
+
+if ARGV.length == 1 && (ARGV[0] == '-h' || ARGV[0] == '--help') then
+	print help_text
+	exit 0
+end
+
+if ARGV[0] == '-g' then
+	guid_only = true;
+	ARGV.delete_at 0
+else
+	guid_only = false;
+end
+
+if ARGV.length < 1 || ARGV.length > 2 then
+	print usage_text
+	exit 1
+end
+
+link_mode = ARGV.length == 2
+if link_mode then
+	link_path = File.expand_path ARGV[1]
+end
+
+app_filename = ARGV[0] + '.app'
+FileUtils.chdir sim_path
+matches = Dir["*/#{app_filename}"]
+if matches.length == 0 then
+	print "No matches found for #{app_filename}\n"
+	exit 1
+elsif matches.length > 1
+	s = "Expected 1 match to #{app_filename}, found #{matches.length}:\n"
+	matches.each do |x|
+		s += "     #{x}\n"
+	end
+	print s
+	exit 1
+else
+	guid = File.split(matches[0])[0]
+	app_path = File.join sim_path, guid
+	# sanity check
+	if !File.exists?(File.join(app_path, app_filename)) then
+		raise "ERROR: #{app_filename} does not exist in directory\n  #{app_path}"
+	end 
+	if !link_mode then
+
+		# I'd like a command like 
+		# $ cd `iphone_sim_app_find appname`
+		# to work correctly, and right now it doesn't. 
+		# If you know a solution, let me know.
+
+		s = guid_only ? guid : app_path.gsub(/ /,"\\ ") 
+		puts s + "\n"
+	end
+end
+
+if link_mode then
+	if File.symlink?(link_path) then
+		print "Deleting existing symlink at #{link_path}\n"
+		FileUtils.rm_rf link_path
+	elsif File.exists?(link_path) then
+		print "Cannot replace existing #{link_path}, is not a symlink" 
+		exit 1
+	end
+
+	print "Creating symlink\n   #{link_path}\npointing to\n   #{app_path}\n"
+	FileUtils.ln_s app_path, link_path
+end
+exit 0
